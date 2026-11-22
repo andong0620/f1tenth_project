@@ -50,7 +50,25 @@ def preprocess(ranges, angles, max_range, window):
     Returns:
         입력과 길이가 같은 새 배열. NaN 없음. 입력을 수정하지 않는다.
     """
-    raise NotImplementedError('preprocess: 라이다 담당 구현 필요')
+    ranges = np.asarray(ranges, dtype=float)
+    valid = np.isfinite(ranges) & (ranges > 0.0)
+    if not valid.any():
+        return np.zeros_like(ranges)
+
+    # 1. 무효 빔을 양옆 유효 값으로 보간. 양끝은 np.interp 가 가장 가까운 유효 값으로 채운다.
+    idx = np.arange(ranges.size)
+    filled = np.interp(idx, idx[valid], ranges[valid])
+
+    # 2. 거리 상한
+    clipped = np.minimum(filled, max_range)
+
+    # 3. 이동평균. edge 패딩으로 양끝 값이 줄어들지 않게 한다.
+    window = max(int(window), 1)
+    if window == 1:
+        return clipped
+    left, right = (window - 1) // 2, window // 2
+    padded = np.pad(clipped, (left, right), mode='edge')
+    return np.convolve(padded, np.ones(window) / window, mode='valid')
 
 
 def safety_bubble(ranges, angles, radius):
@@ -67,7 +85,20 @@ def safety_bubble(ranges, angles, radius):
     Returns:
         새 배열. 전부 0이면 그대로 돌려준다.
     """
-    raise NotImplementedError('safety_bubble: 라이다 담당 구현 필요')
+    out = np.array(ranges, dtype=float)
+    angles = np.asarray(angles, dtype=float)
+    free = out > 0.0
+    if not free.any():
+        return out
+
+    # 1. 0(막힘)을 뺀 가장 가까운 점
+    closest = int(np.argmin(np.where(free, out, np.inf)))
+    r = out[closest]
+
+    # 2. 반경 radius 원이 가리는 각도. r <= radius 면 asin 정의역 밖이라 ±90°로 본다.
+    half_angle = np.pi / 2.0 if r <= radius else np.arcsin(radius / r)
+    out[np.abs(angles - angles[closest]) <= half_angle] = 0.0
+    return out
 
 
 def disparity_extend(ranges, angles, threshold, half_width):
@@ -87,7 +118,29 @@ def disparity_extend(ranges, angles, threshold, half_width):
     Returns:
         입력과 길이가 같은 새 배열. 값이 커지는 빔은 없다.
     """
-    raise NotImplementedError('disparity_extend: 라이다 담당 구현 필요')
+    src = np.asarray(ranges, dtype=float)
+    angles = np.asarray(angles, dtype=float)
+    out = src.copy()
+
+    # 경계는 입력 배열(src)에서만 찾는다. 0이 낀 쌍은 버블이 처리했으므로 건너뛴다.
+    left, right = src[:-1], src[1:]
+    is_edge = (left > 0.0) & (right > 0.0) & (np.abs(right - left) > threshold)
+
+    for i in np.flatnonzero(is_edge):
+        if src[i] < src[i + 1]:
+            # 왼쪽(i)이 가깝다 → 먼 쪽은 인덱스가 커지는 방향
+            d = src[i]
+            edge_angle = angles[i]
+            spread = np.arctan(half_width / d)
+            mask = (angles > edge_angle) & (angles <= edge_angle + spread)
+        else:
+            # 오른쪽(i+1)이 가깝다 → 먼 쪽은 인덱스가 작아지는 방향
+            d = src[i + 1]
+            edge_angle = angles[i + 1]
+            spread = np.arctan(half_width / d)
+            mask = (angles < edge_angle) & (angles >= edge_angle - spread)
+        out[mask] = np.minimum(out[mask], d)
+    return out
 
 
 def find_max_gap(ranges):
@@ -97,7 +150,15 @@ def find_max_gap(ranges):
         (start, end): 양쪽 다 포함하는 인덱스. 길이가 같으면 앞쪽 구간.
         0이 아닌 값이 없으면 (-1, -1).
     """
-    raise NotImplementedError('find_max_gap: 라이다 담당 구현 필요')
+    free = (np.asarray(ranges, dtype=float) > 0.0).astype(int)
+    # 앞뒤에 0을 붙이고 차분하면 +1은 구간 시작, -1은 구간 끝 다음 칸이다.
+    step = np.diff(np.concatenate(([0], free, [0])))
+    starts = np.flatnonzero(step == 1)
+    ends = np.flatnonzero(step == -1) - 1
+    if starts.size == 0:
+        return -1, -1
+    longest = int(np.argmax(ends - starts))  # 길이가 같으면 argmax가 앞쪽을 고른다
+    return int(starts[longest]), int(ends[longest])
 
 
 def best_point(ranges, start, end, depth_ratio):
@@ -111,7 +172,10 @@ def best_point(ranges, start, end, depth_ratio):
     Returns:
         int: start <= idx <= end 인 인덱스
     """
-    raise NotImplementedError('best_point: 라이다 담당 구현 필요')
+    gap = np.asarray(ranges, dtype=float)[start:end + 1]
+    deep = np.flatnonzero(gap >= depth_ratio * gap.max()) + start
+    center = (start + end) / 2.0
+    return int(deep[np.argmin(np.abs(deep - center))])
 
 
 def speed_from_front(front_dist, min_speed, max_speed, slow_dist, fast_dist):
