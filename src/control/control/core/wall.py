@@ -66,7 +66,33 @@ def wall_distance(ranges, angles, side, theta_deg, lookahead, window_deg, max_di
           코너에서는 b가 11 m 밖을 보고 a는 앞 벽에 맞는다. 이 값으로 계산하면
           짧은 D가 나와서 "벽이 가깝다"며 엉뚱한 쪽으로 꺾는다.
     """
-    raise NotImplementedError('wall_distance: 라이다 담당 구현 필요')
+    ranges = np.asarray(ranges, dtype=float)
+    angles = np.asarray(angles, dtype=float)
+    theta = np.radians(theta_deg)
+    half_window = np.radians(window_deg) / 2.0
+
+    if side == 'left':
+        b_angle, a_angle = np.pi / 2.0, np.pi / 2.0 - theta
+    elif side == 'right':
+        b_angle, a_angle = -np.pi / 2.0, -np.pi / 2.0 + theta
+    else:
+        raise ValueError(f"side must be 'left' or 'right', got {side!r}")
+
+    def median_near(target):
+        vals = ranges[np.abs(angles - target) <= half_window]
+        vals = vals[np.isfinite(vals)]
+        return float(np.median(vals)) if vals.size else np.nan
+
+    a, b = median_near(a_angle), median_near(b_angle)
+    if np.isnan(a) or np.isnan(b):
+        return np.nan, np.nan
+    # 삼각법 전에 거리 검사. 코너에서 b는 멀리, a는 앞 벽에 맞아 엉터리 D가 나온다.
+    if b > max_dist or a > max_dist / np.cos(theta):
+        return np.nan, np.nan
+
+    alpha = float(np.arctan2(a * np.cos(theta) - b, a * np.sin(theta)))
+    dist_now = b * np.cos(alpha)
+    return float(dist_now + lookahead * np.sin(alpha)), alpha
 
 
 def front_distance(ranges, angles, window_deg):
@@ -97,7 +123,14 @@ def center_error(d_left, d_right, half_width):
     Returns:
         float: 오차 (m) 또는 nan
     """
-    raise NotImplementedError('center_error: 라이다 담당 구현 필요')
+    has_left, has_right = not np.isnan(d_left), not np.isnan(d_right)
+    if has_left and has_right:
+        return (d_left - d_right) / 2.0
+    if has_left:
+        return d_left - half_width
+    if has_right:
+        return half_width - d_right
+    return np.nan
 
 
 class PID:
@@ -113,14 +146,30 @@ class PID:
         self.ki = ki
         self.kd = kd
         self.i_limit = i_limit
+        self.reset()
 
     def step(self, error, dt):
         """오차 하나를 넣어 제어 입력을 돌려준다. 다음 호출을 위해 상태를 저장한다."""
-        raise NotImplementedError('PID.step: 라이다 담당 구현 필요')
+        if dt <= 0.0:
+            self._prev_error = error
+            return self.kp * error
+
+        # 적분: ki·∫e dt 가 ±i_limit 을 넘지 않도록 적분 상태 자체를 묶는다 (windup 방지).
+        self._integral += error * dt
+        if self.ki != 0.0:
+            bound = self.i_limit / abs(self.ki)
+            self._integral = float(np.clip(self._integral, -bound, bound))
+
+        # 미분: 이전 오차가 없으면(첫 호출, reset 직후) 0으로 둔다.
+        derivative = 0.0 if self._prev_error is None else (error - self._prev_error) / dt
+        self._prev_error = error
+
+        return self.kp * error + self.ki * self._integral + self.kd * derivative
 
     def reset(self):
         """적분값과 이전 오차를 지운다."""
-        raise NotImplementedError('PID.reset: 라이다 담당 구현 필요')
+        self._integral = 0.0
+        self._prev_error = None
 
 
 def speed_from_steer(steer, table):
