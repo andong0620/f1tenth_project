@@ -95,7 +95,30 @@ def cluster_scan(ranges, angles, break_dist, break_ratio):
     Returns:
         list[Cluster]: 각도 순서대로. 유효 점이 하나도 없으면 빈 리스트.
     """
-    raise NotImplementedError('cluster_scan: 라이다 담당 구현 필요')
+    ranges = np.asarray(ranges, dtype=float)
+    angles = np.asarray(angles, dtype=float)
+    valid = np.flatnonzero(np.isfinite(ranges))
+    if valid.size == 0:
+        return []
+
+    r = ranges[valid]
+    points = np.column_stack((r * np.cos(angles[valid]), r * np.sin(angles[valid])))
+
+    # 이웃한 유효 점 사이 거리가 (break_dist + break_ratio × 앞 점 거리) 를 넘으면 끊는다.
+    gaps = np.hypot(*np.diff(points, axis=0).T)
+    splits = np.flatnonzero(gaps > break_dist + break_ratio * r[:-1]) + 1
+    bounds = np.concatenate(([0], splits, [valid.size]))
+
+    clusters = []
+    for s, e in zip(bounds[:-1], bounds[1:]):
+        pts = points[s:e]
+        clusters.append(Cluster(
+            idx_start=int(valid[s]),
+            idx_end=int(valid[e - 1]),
+            points=pts,
+            length=float(np.hypot(*(pts[-1] - pts[0]))),
+        ))
+    return clusters
 
 
 def find_obstacles(clusters, corridor_width, d_obs, max_obstacle_len):
@@ -117,4 +140,12 @@ def find_obstacles(clusters, corridor_width, d_obs, max_obstacle_len):
     Returns:
         list[Cluster]: 장애물 클러스터. 없으면 빈 리스트.
     """
-    raise NotImplementedError('find_obstacles: 라이다 담당 구현 필요')
+    half = corridor_width / 2.0
+    obstacles = []
+    for cluster in clusters:
+        if cluster.length > max_obstacle_len:
+            continue  # 길면 벽이다. 코너의 바깥 벽을 장애물로 오인하지 않게 하는 핵심 조건.
+        x, y = cluster.points[:, 0], cluster.points[:, 1]
+        if np.any((x > 0.0) & (x <= d_obs) & (np.abs(y) <= half)):
+            obstacles.append(cluster)
+    return obstacles
