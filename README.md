@@ -1,9 +1,7 @@
 # RoboRacer LiDAR Planning — Gap Follow · Wall/Obstacle Clustering · Wall Follow
 
-My part of the **Hanyang University, Dept. of Future Automotive Engineering — 2026 Automotive Engineering Lab, Team 2** project:
+**2026 Automotive Engineering Lab, Team 2** project:
 a 1/10-scale autonomous race car (RoboRacer / F1TENTH-style) that drives a closed-loop track **without a map**, reacting to each sensor frame.
-
-I was assigned the **LiDAR planning** stage: turn one 2D LiDAR scan into a steering command.
 
 - **Follow the Gap** with a disparity extender, for sections with obstacles
 - **Wall / obstacle classification** by clustering each scan, used to switch modes
