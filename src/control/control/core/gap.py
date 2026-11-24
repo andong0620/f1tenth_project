@@ -184,7 +184,10 @@ def speed_from_front(front_dist, min_speed, max_speed, slow_dist, fast_dist):
     front_dist <= slow_dist 이면 min_speed, front_dist >= fast_dist 이면 max_speed,
     그 사이는 직선으로 잇는다. (np.interp)
     """
-    raise NotImplementedError('speed_from_front: 하드웨어·컨트롤 담당 구현 필요')
+    # TODO(컨트롤 담당): 임시 구현. 담당자 버전이 오면 교체한다.
+    if not np.isfinite(front_dist):
+        return float(max_speed)  # 정면에 아무것도 안 보이면 뚫린 것으로 본다
+    return float(np.interp(front_dist, [slow_dist, fast_dist], [min_speed, max_speed]))
 
 
 def follow_gap(ranges, angles, p):

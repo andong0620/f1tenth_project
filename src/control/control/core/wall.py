@@ -187,7 +187,10 @@ def speed_from_steer(steer, table):
     Returns:
         float: 속도 (m/s)
     """
-    raise NotImplementedError('speed_from_steer: 하드웨어·컨트롤 담당 구현 필요')
+    # TODO(컨트롤 담당): 임시 구현. 담당자 버전이 오면 교체한다.
+    breaks, speeds = table
+    i = int(np.searchsorted(np.asarray(breaks, dtype=float), abs(steer), side='right'))
+    return float(speeds[i])
 
 
 def follow_walls(ranges, angles, pid, dt, p):
