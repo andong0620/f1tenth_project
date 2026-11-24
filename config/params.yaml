@@ -1,0 +1,35 @@
+# 팀 저장소 src/bringup/config/safe.yaml 의 gap_follow, wall_follow 값을 그대로 옮겨 왔다 (2026-11-21 커밋 기준).
+# 트랙 실측 전 임시값이다. 실측 후 팀 safe.yaml 과 같이 고친다.
+# 통로 폭 1.2 m 가정: wall_follow.half_width 0.6, max_wall_dist 1.5
+
+wall_follow:
+  ros__parameters:
+    theta_deg: 50.0
+    lookahead: 0.5
+    beam_window_deg: 3.0
+    max_wall_dist: 1.5
+    half_width: 0.6
+    corner_front_dist: 2.0
+    kp: 1.0
+    ki: 0.0
+    kd: 0.1
+    i_limit: 0.2
+    max_steer_deg: 20.0
+    steer_breaks_deg: [10.0, 20.0]
+    speeds: [1.0, 0.7, 0.4]
+
+gap_follow:
+  ros__parameters:
+    fov_deg: 180.0
+    max_range: 3.0
+    window: 3
+    bubble_radius: 0.3
+    disparity_threshold: 0.2
+    half_width: 0.2
+    depth_ratio: 0.9
+    front_half_deg: 10.0
+    min_speed: 0.4
+    max_speed: 1.0
+    slow_dist: 0.8
+    fast_dist: 2.5
+    max_steer_deg: 20.0
