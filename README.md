@@ -20,8 +20,21 @@ a 1/10-scale autonomous race car (RoboRacer / F1TENTH-style) that drives a close
 
 **Wall vs. obstacle.** Each scan is split into clusters of consecutive points with an adaptive breakpoint threshold. A cluster is an obstacle only if it is **short** and lies **inside the forward corridor**. The length check is what stops the outer wall of a corner from being mistaken for an obstacle (right panel).
 
-**Tests.** 69 contract tests for my functions pass, 0 fail (`python -m pytest`).
-The remaining 31 tests are marked `xfail` because they also call two speed-selection functions that belong to a teammate (hardware/control) and are not part of this repository.
+**Tests.** All 112 tests pass (`python -m pytest`: 12 passed, 100 xpassed, 0 failed).
+The two speed-selection functions (`speed_from_front`, `speed_from_steer`) belong to a teammate (hardware/control); this repository carries **temporary** implementations, marked `TODO`, so the controllers can be driven end to end until the teammate's version replaces them.
+
+![Offline closed-loop run](docs/offline_gap_alt.png)
+
+**Closed-loop check without ROS.** `sim/offline_sim.py` drives the controllers on a 1.2 m pipe-like loop with boxes, using a kinematic bicycle model and the same 0.24° / 20 Hz beam layout as the YDLIDAR TEA. Gap follow completes 3 laps with 3 cm range noise. This is a quick sanity check only; f1sim_ms and the real car are still required.
+
+| Scenario (`--boxes`) | gap | wall |
+|---|---|---|
+| `none` (empty loop) | 3 laps, 44 s/lap | 3 laps, 42 s/lap |
+| `alt` (3 boxes, alternating sides) | 3 laps, 49 s/lap (also with 3 cm noise) | 3 laps (boxes are passed by luck: wall follow has no avoidance; on the car the mode manager switches to GAP) |
+| `wall` (box touching the wall) | 3 laps | 3 laps |
+| `row` (2 boxes 1 m apart, opposite sides) | **crash** | crash |
+
+The `row` case is a geometry limit, not a code bug: with wheelbase 0.25 m and `max_steer_deg` 20°, the minimum turning radius is about 0.69 m, too large for a 0.5 m sidestep within 1 m in a 1.2 m corridor. It passes with 30° steering or a 1.6 m corridor. The real maximum steering angle and box spacing need to be measured.
 
 ## Pipeline
 
@@ -53,17 +66,31 @@ Convention: REP-103 (x forward, y left, angle 0 straight ahead, counter-clockwis
 
 ```bash
 pip install -r requirements.txt
-python -m pytest          # contract tests
-python demo.py            # regenerates the figures in docs/
+python -m pytest                              # contract tests
+python demo.py                                # regenerates the figures in docs/
+python sim/offline_sim.py gap                 # closed loop, no ROS (Windows/macOS/Ubuntu)
+python sim/offline_sim.py wall --boxes none --plot docs/offline_wall.png
 ```
+
+With Ubuntu 22.04 and [f1sim_ms](https://github.com/leemyungsub324/f1sim_ms) installed (team TODO 4-0):
+
+```bash
+python3 sim/make_pipe_map.py maps/pipe --width 1.2   # then place boxes with f1sim_ms/tools/obstacle_map_maker.py
+python3 sim/sim_check.py gap --render --map maps/pipe_obs
+```
+
+Parameters come from `config/params.yaml`, a copy of the team `safe.yaml` (`gap_follow`, `wall_follow`). Pass `--params <team repo>/src/bringup/config/safe.yaml` to use the team file directly.
 
 ## Status and next steps
 
 - [x] Gap follow — unit tests pass
 - [x] Wall / obstacle clustering — unit tests pass
 - [x] Wall follow — unit tests pass
-- [ ] Gap follow validated in the f1tenth_gym simulator (3 collision-free laps on the box map)
+- [x] Closed-loop sanity check without ROS (`sim/offline_sim.py`)
+- [ ] Port to the team repository (`lidar` branch, PR)
+- [ ] Gap follow validated in the f1sim_ms simulator (3 collision-free laps on the box map)
 - [ ] Mode switching WALL ↔ GAP in simulation, then on the real car (pipe section)
+- [ ] Track measurements → parameters (corridor width, box size, car width, steering limit)
 - [ ] Final track demo (Dec 17, 2026)
 
 ## Credits
