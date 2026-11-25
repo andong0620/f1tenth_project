@@ -11,6 +11,8 @@ GUI 대신 생성기의 MapModel·Obstacle 클래스를 그대로 불러 써서,
 - pipe_obs_alt  : 좌우 번갈아 3개 (x 4, 7, 10)
 - pipe_obs_row  : 같은 쪽에 연달아 2개, 중심 간격 1.0 m (x 5, 6)
 - pipe_obs_wall : 바깥 벽에 붙인 1개 (x 6)
+- pipe_obs_center : 통로 가운데를 막는 2개 (x 5, 9.5). 중앙을 따라가는 wall follow 로는 못 지나가서
+                    AUTO 모드가 GAP 으로 바뀌는 것을 볼 때 쓴다
 """
 import argparse
 import importlib.util
@@ -38,6 +40,7 @@ layouts = {
     'alt': [(4.0, low), (7.0, high), (10.0, low)],
     'row': [(5.0, low), (6.0, low)],
     'wall': [(6.0, r)],
+    'center': [(5.0, width / 2), (9.5, width / 2 + 0.15)],
 }
 stem = str(pathlib.Path(args.map_yaml).with_suffix(''))
 for name, boxes in layouts.items():
