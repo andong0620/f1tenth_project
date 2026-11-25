@@ -33,5 +33,6 @@ except ImportError:  # OpenCV 가 없으면 Pillow 로
 
 out.with_suffix('.yaml').write_text(
     f"image: {out.name}.png\nresolution: {args.res}\norigin: [0.0, 0.0, 0.0]\n"
-    "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n")
+    "negate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n"
+    f"corridor_width: {args.width}  # make_obstacle_maps.py 가 읽는다\n")
 print('saved', str(out) + '.png', '시작 위치 x=2.0, y=%.2f, theta=0' % (args.width / 2))
