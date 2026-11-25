@@ -35,6 +35,7 @@ except ImportError as e:  # pragma: no cover
 
 FOV, BEAMS = 4.7, 1080          # f1sim_ms 기본 LiDAR (270°)
 SIM_DT, CTRL_DT = 0.01, 0.05    # 물리 100 Hz, 제어 20 Hz (TEA 와 같다)
+LIDAR_X = 0.275                 # 후륜축에서 LiDAR 까지 (m). f1sim_ms ROS 브리지 sim.yaml 과 같다
 
 
 def load_params(paths, overrides):
@@ -55,11 +56,11 @@ def load_params(paths, overrides):
 
 
 def run(ctrl, map_yaml, gp, wp, delay=0.0, noise=0.0, limits=True, laps=3, start=None,
-        max_time=300.0, seed=0, steer_rate_deg=90.0):
+        max_time=300.0, seed=0, steer_rate_deg=90.0, lidar_x=None):
     """한 번 달리고 결과 dict 를 돌려준다."""
     meta = yaml.safe_load(open(map_yaml, encoding='utf-8'))
     ext = pathlib.Path(meta['image']).suffix
-    sim = CppSimulator(normalize_vehicle_params(None), 1, seed, SIM_DT, 0, 1, 0.0, BEAMS, FOV)
+    sim = CppSimulator(normalize_vehicle_params(None), 1, seed, SIM_DT, 0, 1, LIDAR_X if lidar_x is None else lidar_x, BEAMS, FOV)
     sim.set_map(str(map_yaml), ext)
     from PIL import Image
     w_px, h_px = Image.open(pathlib.Path(map_yaml).with_name(meta['image'])).size
@@ -138,6 +139,7 @@ def main():
     ap.add_argument('--delay', type=float, default=0.0)
     ap.add_argument('--noise', type=float, default=0.0)
     ap.add_argument('--no-limits', action='store_true')
+    ap.add_argument('--lidar-x', type=float, default=LIDAR_X, help='후륜축에서 LiDAR 까지 (m). 우리 차 실측값으로')
     ap.add_argument('--steer-rate', type=float, default=90.0, help='mode_manager max_steer_rate_deg (deg/s)')
     ap.add_argument('--laps', type=int, default=3)
     args = ap.parse_args()
@@ -145,7 +147,7 @@ def main():
     ok = True
     for m in args.maps:
         r = run(args.ctrl, m, gp, wp, args.delay, args.noise, not args.no_limits, args.laps,
-                steer_rate_deg=args.steer_rate)
+                steer_rate_deg=args.steer_rate, lidar_x=args.lidar_x)
         ok &= r['result'] == 'done'
         print(f'{args.ctrl:4s} {pathlib.Path(m).stem:15s} delay={args.delay:.2f} noise={args.noise:.2f} {fmt(r)}')
     sys.exit(0 if ok else 1)
