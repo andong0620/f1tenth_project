@@ -36,23 +36,23 @@ The two speed-selection functions (`speed_from_front`, `speed_from_steer`) belon
 
 The `row` case is a geometry limit, not a code bug: with wheelbase 0.25 m and `max_steer_deg` 20°, the minimum turning radius is about 0.69 m, too large for a 0.5 m sidestep within 1 m in a 1.2 m corridor. It passes with 30° steering or a 1.6 m corridor. The real maximum steering angle and box spacing need to be measured.
 
-**Latency study (f1sim_ms).** The 11/24 bags show a 0.2–0.3 s lag between a command and the wheels. `sim/sim_eval.py` runs the controllers headless on the f1sim_ms C++ core with that lag, 3 cm range noise and the same output limits as `mode_manager` (steer rate, acceleration, 0.3–1.5 m/s). Maps are the team's three box layouts plus an empty loop, baked with the f1sim_ms obstacle generator (`sim/make_obstacle_maps.py`). Corridor 1.5 m, 3 laps, two noise seeds per map:
+**Latency study (f1sim_ms).** The 11/24 bags show a 0.2–0.3 s lag between a command and the wheels. `sim/sim_eval.py` runs the controllers headless on the f1sim_ms C++ core with that lag, 3 cm range noise and the same output limits as `mode_manager` (steer rate, acceleration, 0.3–1.5 m/s). The car is the f1sim_ms default, which matches the RoboRacer chassis (wheelbase 0.33 m, 0.58 × 0.31 m, 24° steering), with the LiDAR 0.275 m ahead of the rear axle as in the f1sim_ms ROS bridge. Maps are the team's three box layouts plus an empty loop, baked with the f1sim_ms obstacle generator (`sim/make_obstacle_maps.py`). Corridor 1.5 m, 3 laps:
 
 | Setting | lag 0 | 0.2 s | 0.25 s | 0.3 s |
 |---|---|---|---|---|
-| gap, defaults (1.0 m/s) | 8/8, 43 s/lap | 1/8 | 1/8 | 0/8 |
-| gap, **0.7 m/s + steer rate 180°/s** | 8/8, 56 s | 8/8, 61 s | 8/8, 64 s | 8/8, 67 s |
-| wall, defaults (1.0/0.7/0.4 m/s) | 2/2, 46 s | 1/2 | 0/2 | 0/2 |
-| wall, **0.6/0.5/0.4 m/s + corner_front_dist 2.5 m** | 2/2, 63 s | 2/2, 64 s | 2/2, 64 s | 2/2, 65 s |
+| gap, defaults (1.0 m/s, half_width 0.2) | 6/8, 43 s/lap | 1/8 | 0/8 | 0/8 |
+| gap, 0.7 m/s + steer rate 180°/s | 8/8, 56 s | 7/8 | 6/8 | 5/8 |
+| gap, **0.7 m/s + steer rate 180°/s + half_width 0.35** | 8/8, 55 s | 8/8, 60 s | 8/8, 62 s | 7/8, 64 s |
+| wall, defaults (1.0/0.7/0.4 m/s, corner_front_dist 2.0 m) | 4/4, 43 s | 4/4 | 4/4 | 4/4 |
 
-With the default speeds almost every run hits the outer wall in a corner once lag is added. What fixed it, in order of effect:
+What helps gap follow, in order:
 1. **Lower speed.** The car drives blind for the length of the lag (25 cm at 1.0 m/s, 0.25 s).
-2. **Raise the steer-rate limit** in `mode_manager` (`max_steer_rate_deg`, owned by the team lead) from 90 to 180°/s. At 90°/s a 20° turn takes another 0.22 s, which acts like extra lag.
-3. **Start corners earlier** in wall follow (`corner_front_dist` 2.5 m).
+2. **Widen the disparity margin** (`half_width` 0.2 → 0.35). With the LiDAR ahead of the rear axle the car turns as soon as its nose clears a corner, and the rear clips the inner corner. The cost: gaps narrower than 0.7 m are treated as blocked; set it again once the real car and box spacing are measured.
+3. **Raise the steer-rate limit** in `mode_manager` (`max_steer_rate_deg`, owned by the team lead) from 90 to 180°/s. At 90°/s a 20° turn takes another 0.22 s, which acts like extra lag.
 
-Changing the PID gains (kp 0.4–1.0, kd 0.1–0.3, lookahead 0.5–1.0 m) did not fix the corner crashes at 1.0 m/s, and a higher kd made noise worse, so the gains stay at kp 1.0, kd 0.1. The tuned values are in `config/delay_tuned.yaml`. On the car, start there and raise `max_speed` by 0.1 m/s after each clean 3-lap run.
+Wall follow is fine with the defaults at every lag tested. An earlier version of this study (LiDAR placed over the rear axle) suggested a larger `corner_front_dist`; with the LiDAR in front that makes the car cut corners, so it is withdrawn. The LiDAR position matters: pass the measured value with `--lidar-x`. Tuned values are in `config/delay_tuned.yaml`. Without lag (simulator only), half_width 0.35 also allows `max_speed` 1.5 m/s (33 s/lap, 12/12 runs).
 
-**Corridor width matters.** At 1.2 m, the f1sim_ms car (0.58 × 0.31 m) hits the corners even with no lag; at 1.5 m it does not. The real corridor width and the car's minimum turning radius must be measured before final tuning.
+**Corridor width and LiDAR position matter.** At 1.2 m, the f1sim_ms car (0.58 × 0.31 m) hits the corners even with no lag; at 1.5 m it does not. The real corridor width, the car's minimum turning radius and the LiDAR position (rear axle → LiDAR, LiDAR → front bumper) must be measured before final tuning.
 
 ## Pipeline
 
@@ -122,7 +122,7 @@ Parameters come from `config/params.yaml`, a copy of the team `safe.yaml` (`gap_
 - [ ] Port to the team repository (`lidar` branch, PR)
 - [ ] Gap follow in the f1sim_ms simulator with RViz, screen recording for the proposal
 - [ ] Mode switching WALL ↔ GAP in simulation, then on the real car (pipe section)
-- [ ] Track measurements → parameters (corridor width, box size, car width, turning radius, steering limit)
+- [ ] Track and car measurements → parameters (corridor width, box size, LiDAR position, turning radius, steering limit)
 - [ ] Final track demo (Dec 17, 2026)
 
 **Before testing on the floor** (from the team's 11/24 bag analysis):
