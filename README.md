@@ -36,6 +36,24 @@ The two speed-selection functions (`speed_from_front`, `speed_from_steer`) belon
 
 The `row` case is a geometry limit, not a code bug: with wheelbase 0.25 m and `max_steer_deg` 20°, the minimum turning radius is about 0.69 m, too large for a 0.5 m sidestep within 1 m in a 1.2 m corridor. It passes with 30° steering or a 1.6 m corridor. The real maximum steering angle and box spacing need to be measured.
 
+**Latency study (f1sim_ms).** The 11/24 bags show a 0.2–0.3 s lag between a command and the wheels. `sim/sim_eval.py` runs the controllers headless on the f1sim_ms C++ core with that lag, 3 cm range noise and the same output limits as `mode_manager` (steer rate, acceleration, 0.3–1.5 m/s). Maps are the team's three box layouts plus an empty loop, baked with the f1sim_ms obstacle generator (`sim/make_obstacle_maps.py`). Corridor 1.5 m, 3 laps, two noise seeds per map:
+
+| Setting | lag 0 | 0.2 s | 0.25 s | 0.3 s |
+|---|---|---|---|---|
+| gap, defaults (1.0 m/s) | 8/8, 43 s/lap | 1/8 | 1/8 | 0/8 |
+| gap, **0.7 m/s + steer rate 180°/s** | 8/8, 56 s | 8/8, 61 s | 8/8, 64 s | 8/8, 67 s |
+| wall, defaults (1.0/0.7/0.4 m/s) | 2/2, 46 s | 1/2 | 0/2 | 0/2 |
+| wall, **0.6/0.5/0.4 m/s + corner_front_dist 2.5 m** | 2/2, 63 s | 2/2, 64 s | 2/2, 64 s | 2/2, 65 s |
+
+With the default speeds almost every run hits the outer wall in a corner once lag is added. What fixed it, in order of effect:
+1. **Lower speed.** The car drives blind for the length of the lag (25 cm at 1.0 m/s, 0.25 s).
+2. **Raise the steer-rate limit** in `mode_manager` (`max_steer_rate_deg`, owned by the team lead) from 90 to 180°/s. At 90°/s a 20° turn takes another 0.22 s, which acts like extra lag.
+3. **Start corners earlier** in wall follow (`corner_front_dist` 2.5 m).
+
+Changing the PID gains (kp 0.4–1.0, kd 0.1–0.3, lookahead 0.5–1.0 m) did not fix the corner crashes at 1.0 m/s, and a higher kd made noise worse, so the gains stay at kp 1.0, kd 0.1. The tuned values are in `config/delay_tuned.yaml`. On the car, start there and raise `max_speed` by 0.1 m/s after each clean 3-lap run.
+
+**Corridor width matters.** At 1.2 m, the f1sim_ms car (0.58 × 0.31 m) hits the corners even with no lag; at 1.5 m it does not. The real corridor width and the car's minimum turning radius must be measured before final tuning.
+
 ## Pipeline
 
 ```
@@ -79,6 +97,19 @@ python3 sim/make_pipe_map.py maps/pipe --width 1.2   # then place boxes with f1s
 python3 sim/sim_check.py gap --render --map maps/pipe_obs
 ```
 
+Headless latency check on the f1sim_ms C++ core (no window, no ROS):
+
+```bash
+python3 sim/make_pipe_map.py maps/pipe --width 1.5
+python3 sim/make_obstacle_maps.py maps/pipe.yaml --maker ~/f1sim_ms/tools/obstacle_map_maker.py
+export PYTHONPATH=~/f1sim_ms/gym
+python3 sim/sim_eval.py gap maps/pipe_obs_*.yaml --delay 0.25 --steer-rate 180 \
+    --params config/params.yaml config/delay_tuned.yaml
+python3 sim/sim_eval.py wall maps/pipe.yaml --delay 0.25 \
+    --params config/params.yaml config/delay_tuned.yaml \
+    --set wall_follow.half_width=0.75 --set wall_follow.max_wall_dist=1.8
+```
+
 Parameters come from `config/params.yaml`, a copy of the team `safe.yaml` (`gap_follow`, `wall_follow`). Pass `--params <team repo>/src/bringup/config/safe.yaml` to use the team file directly.
 
 ## Status and next steps
@@ -87,11 +118,16 @@ Parameters come from `config/params.yaml`, a copy of the team `safe.yaml` (`gap_
 - [x] Wall / obstacle clustering — unit tests pass
 - [x] Wall follow — unit tests pass
 - [x] Closed-loop sanity check without ROS (`sim/offline_sim.py`)
+- [x] Box maps with the f1sim_ms obstacle generator, latency study and tuning (`sim/sim_eval.py`, `config/delay_tuned.yaml`)
 - [ ] Port to the team repository (`lidar` branch, PR)
-- [ ] Gap follow validated in the f1sim_ms simulator (3 collision-free laps on the box map)
+- [ ] Gap follow in the f1sim_ms simulator with RViz, screen recording for the proposal
 - [ ] Mode switching WALL ↔ GAP in simulation, then on the real car (pipe section)
-- [ ] Track measurements → parameters (corridor width, box size, car width, steering limit)
+- [ ] Track measurements → parameters (corridor width, box size, car width, turning radius, steering limit)
 - [ ] Final track demo (Dec 17, 2026)
+
+**Before testing on the floor** (from the team's 11/24 bag analysis):
+- AEB is off until the `/odom` sign fix is confirmed. Until then, autonomous tests run with the wheels lifted.
+- The 3300 kV motor stalls at 0.26–0.34 m/s, more often while steering hard. Keep the lowest speeds at 0.4 m/s or above; raise to 0.45–0.5 if the car hesitates at boxes or corners.
 
 ## Credits
 
