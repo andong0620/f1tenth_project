@@ -29,6 +29,11 @@ class GapParams:
     slow_dist: float            # m, 전방 거리가 이 이하면 min_speed
     fast_dist: float            # m, 전방 거리가 이 이상이면 max_speed
     max_steer_deg: float        # 조향각 제한
+    # 아래 4개는 기본값이 있어서 팀 safe.yaml 에 없어도 된다 (없으면 예전과 똑같이 동작).
+    steer_mode: str = 'angle'   # 'angle': 목표점 각도 = 조향각 / 'pursuit': pure pursuit 식
+    wheelbase: float = 0.33     # m, 축간 거리 (pursuit 에서만). RoboRacer 표준 차체. 실측으로 바꾼다
+    lidar_x: float = 0.27       # m, base_link(후륜축) → LiDAR 전방 거리 (pursuit 에서만). mount.yaml 과 맞춘다
+    pursuit_max_dist: float = 1.0  # m, 목표점이 이보다 멀면 같은 방향 이 거리의 점을 쓴다
 
 
 def preprocess(ranges, angles, max_range, window):
@@ -190,6 +195,22 @@ def speed_from_front(front_dist, min_speed, max_speed, slow_dist, fast_dist):
     return float(np.interp(front_dist, [slow_dist, fast_dist], [min_speed, max_speed]))
 
 
+def pure_pursuit_steer(r, angle, wheelbase, lidar_x, max_dist):
+    """LiDAR 기준 목표점(거리 r, 각도 angle)을 pure pursuit 조향각으로 바꾼다.
+
+    1. 목표점이 max_dist 보다 멀면 같은 방향으로 max_dist 인 점을 쓴다 (lookahead 상한).
+    2. LiDAR 좌표 → base_link(후륜축) 좌표: x = lidar_x + r·cos(angle), y = r·sin(angle).
+    3. 후륜축에서 목표점을 지나는 원호: 곡률 κ = 2y / (x² + y²), 조향각 δ = atan(wheelbase·κ).
+
+    목표점 각도를 그대로 조향각으로 쓰면 가까운 점이든 먼 점이든 똑같이 꺾는다.
+    pure pursuit 은 먼 목표점에는 덜, 가까운 목표점에는 더 꺾고, 축간 거리와 LiDAR 위치가 들어간다.
+    """
+    d = min(float(r), float(max_dist))
+    x = lidar_x + d * np.cos(angle)
+    y = d * np.sin(angle)
+    return float(np.arctan(wheelbase * 2.0 * y / (x * x + y * y)))
+
+
 def follow_gap(ranges, angles, p):
     """스캔 하나로 (조향각, 속도)를 계산한다. 위 함수들을 순서대로 부르는 조립 함수다."""
     ranges, angles = crop_fov(ranges, angles, p.fov_deg)
@@ -203,7 +224,11 @@ def follow_gap(ranges, angles, p):
 
     idx = best_point(free, start, end, p.depth_ratio)
     max_steer = np.radians(p.max_steer_deg)
-    steer = float(np.clip(angles[idx], -max_steer, max_steer))
+    if p.steer_mode == 'pursuit':
+        raw = pure_pursuit_steer(free[idx], angles[idx], p.wheelbase, p.lidar_x, p.pursuit_max_dist)
+    else:
+        raw = angles[idx]
+    steer = float(np.clip(raw, -max_steer, max_steer))
 
     front = np.abs(angles) <= np.radians(p.front_half_deg)
     speed = speed_from_front(
