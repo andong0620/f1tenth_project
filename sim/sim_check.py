@@ -31,7 +31,7 @@ args = ap.parse_args()
 cfg = yaml.safe_load(open(args.params, encoding='utf-8'))
 def params(cls, node):
     p = cfg[node]['ros__parameters']
-    return cls(**{k: p[k] for k in cls.__dataclass_fields__})
+    return cls(**{k: p[k] for k in cls.__dataclass_fields__ if k in p})  # 없는 값은 기본값
 
 if args.ctrl == 'gap':
     gp = params(GapParams, 'gap_follow')

@@ -70,7 +70,7 @@ def load_params(path):
     cfg = yaml.safe_load(open(path, encoding='utf-8'))
     def pick(cls, node):
         p = cfg[node]['ros__parameters']
-        return cls(**{k: p[k] for k in cls.__dataclass_fields__})
+        return cls(**{k: p[k] for k in cls.__dataclass_fields__ if k in p})  # 없는 값은 기본값
     return pick(GapParams, 'gap_follow'), pick(WallParams, 'wall_follow')
 
 
