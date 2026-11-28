@@ -1,0 +1,28 @@
+# gap follow 조향을 pure pursuit 식으로 바꾸는 후보값 (2026-11-28, sim/sim_eval.py).
+# params.yaml, delay_tuned.yaml 위에 덮어쓴다:
+#   --params config/params.yaml config/delay_tuned.yaml config/pursuit.yaml
+#
+# 무엇이 다른가: 지금 gap follow 는 목표점 각도를 그대로 조향각으로 쓴다.
+# pursuit 은 후륜축(base_link)에서 목표점을 지나는 원호의 조향각 atan(2·L·y / (x²+y²)) 을 쓴다.
+# 목표점이 pursuit_max_dist 보다 멀면 같은 방향 그 거리의 점을 쓴다 (lookahead 상한).
+#
+# 조건: f1sim_ms 기본 차량 (축간 0.33 m), LiDAR 후륜축 0.275 m 앞, 통로 1.5 m,
+#       맵 5종 (빈 맵 + 박스 4종: alt, row, wall, center), 잡음 3 cm, 0.7 m/s, half_width 0.35, 2바퀴.
+#       조향 변화율 제한 없음 (팀 mode_manager 는 모드 전환 뒤 0.5 s 동안만 제한한다).
+#
+# 결과 (완주/5, 흔들림 = 제어 주기마다 조향 변화 평균)  지연 0     0.2 s      0.25 s     0.3 s
+#   angle (지금 방식)                              5/5 7.0°   5/5 3.5°   3/5        3/5
+#   pursuit, pursuit_max_dist 1.5                  4/5        -          4/5        -
+#   pursuit, pursuit_max_dist 1.2                  4/5        -          4/5        -
+#   pursuit, pursuit_max_dist 1.0                  5/5 3.5°   5/5 2.5°   5/5 2.1°   5/5 1.9°
+#
+# 1.2 m 이상은 통로 가운데 박스(center 맵)를 둘째 바퀴에 못 피했다. 멀리 보면 덜 꺾어서 늦다.
+# 1.0 m 에서는 모든 지연에서 완주했고, 흔들림은 절반, 벽·박스와의 최소 거리는 0.1~0.15 m 더 넓었다.
+# wheelbase, lidar_x 는 실측값으로 바꾼다 (팀 mount.yaml: base_link = 후륜축 중심을 지면에 내린 점).
+
+gap_follow:
+  ros__parameters:
+    steer_mode: pursuit
+    wheelbase: 0.33         # 실측 전 RoboRacer 표준값. 팀 vesc.yaml 의 0.25 도 임시값이다
+    lidar_x: 0.27           # 팀 mount.yaml: plate.x 0.20(임시) + laser_on_plate.x 0.070
+    pursuit_max_dist: 1.0
