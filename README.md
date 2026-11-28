@@ -20,7 +20,7 @@ a 1/10-scale autonomous race car (RoboRacer / F1TENTH-style) that drives a close
 
 **Wall vs. obstacle.** Each scan is split into clusters of consecutive points with an adaptive breakpoint threshold. A cluster is an obstacle only if it is **short** and lies **inside the forward corridor**. The length check is what stops the outer wall of a corner from being mistaken for an obstacle (right panel).
 
-**Tests.** All 112 tests pass (`python -m pytest`: 12 passed, 100 xpassed, 0 failed).
+**Tests.** All 117 tests pass (`python -m pytest`: 17 passed, 100 xpassed, 0 failed).
 The two speed-selection functions (`speed_from_front`, `speed_from_steer`) belong to a teammate (hardware/control); this repository carries **temporary** implementations, marked `TODO`, so the controllers can be driven end to end until the teammate's version replaces them.
 
 ![Offline closed-loop run](docs/offline_gap_alt.png)
@@ -52,6 +52,17 @@ What helps gap follow, in order:
 
 Wall follow is fine with the defaults at every lag tested. An earlier version of this study (LiDAR placed over the rear axle) suggested a larger `corner_front_dist`; with the LiDAR in front that makes the car cut corners, so it is withdrawn. The LiDAR position matters: pass the measured value with `--lidar-x`. Tuned values are in `config/delay_tuned.yaml`. Without lag (simulator only), half_width 0.35 also allows `max_speed` 1.5 m/s (33 s/lap, 12/12 runs).
 
+**Pure Pursuit steering for gap follow (option, 2026-11-28).** Gap follow normally uses the target angle directly as the steering angle. With `steer_mode: pursuit` the target is moved from the LiDAR to the rear axle (`lidar_x`) and converted with the pure pursuit law δ = atan(2·L·y / (x² + y²)), with the lookahead capped at `pursuit_max_dist`. Same setup as above (corridor 1.5 m, 0.7 m/s, half_width 0.35, 3 cm noise), five maps including a box in the middle of the corridor, 2 laps, no steady-state steer-rate limit (the team `mode_manager` limits it only for 0.5 s after a mode change):
+
+| Steering | lag 0 | 0.2 s | 0.25 s | 0.3 s |
+|---|---|---|---|---|
+| target angle (current) | 5/5, wobble 7.0° | 5/5, 3.5° | 3/5 | 3/5 |
+| pure pursuit, cap 1.5 m | 4/5 | – | 4/5 | – |
+| pure pursuit, cap 1.2 m | 4/5 | – | 4/5 | – |
+| **pure pursuit, cap 1.0 m** | 5/5, 3.5° | 5/5, 2.5° | 5/5, 2.1° | 5/5, 1.9° |
+
+Wobble is the mean change of the steering command per control step. Pure pursuit halves it and keeps 0.1–0.15 m more clearance from walls and boxes. A longer cap steers too gently to dodge the centre box; 1.0 m passes every map at every lag. Values are in `config/pursuit.yaml`. The old behaviour is the default, so the team `safe.yaml` works unchanged. Background and paper notes are in [docs/planner_research.md](docs/planner_research.md).
+
 **Corridor width and LiDAR position matter.** At 1.2 m, the f1sim_ms car (0.58 × 0.31 m) hits the corners even with no lag; at 1.5 m it does not. The real corridor width, the car's minimum turning radius and the LiDAR position (rear axle → LiDAR, LiDAR → front bumper) must be measured before final tuning.
 
 ## Pipeline
@@ -63,7 +74,7 @@ Wall follow is fine with the defaults at every lag tested. An earlier version of
                         ─ find_max_gap ─ best_point ───────────────► steering (gap follow)
 ```
 
-Convention: REP-103 (x forward, y left, angle 0 straight ahead, counter-clockwise positive).
+Convention: REP-103 (x forward, y left, angle 0 straight ahead, counter-clockwise positive). Scan angles are measured at the LiDAR; `base_link` is the rear-axle centre on the ground, and the LiDAR sits about 0.27 m ahead of it (team `mount.yaml`, to be measured).
 
 ## What I implemented
 
@@ -74,6 +85,7 @@ Convention: REP-103 (x forward, y left, angle 0 straight ahead, counter-clockwis
 | | `disparity_extend` | At each range jump, copy the near distance d over the far side for atan(half_width / d); edges detected on the input, written to a copy |
 | | `find_max_gap` | Longest run of free beams (ties keep the first) |
 | | `best_point` | Among beams ≥ 0.9 × deepest, pick the one closest to the gap centre |
+| | `pure_pursuit_steer` | Optional: move the target to the rear axle and steer along the circular arc through it, lookahead capped |
 | `src/control/control/core/wall.py` | `wall_distance` | F1TENTH Lab 3 geometry: α = atan2(a·cosθ − b, a·sinθ), D = b·cosα + L·sinα; median over a small angular window to survive dropouts; reject far beams before the trigonometry (corner case) |
 | | `center_error` | Error to the corridor centre, continuous when one wall disappears |
 | | `PID` | Discrete PID with integral anti-windup and safe handling of dt ≤ 0 |
@@ -105,6 +117,8 @@ python3 sim/make_obstacle_maps.py maps/pipe.yaml --maker ~/f1sim_ms/tools/obstac
 export PYTHONPATH=~/f1sim_ms/gym
 python3 sim/sim_eval.py gap maps/pipe_obs_*.yaml --delay 0.25 --steer-rate 180 \
     --params config/params.yaml config/delay_tuned.yaml
+python3 sim/sim_eval.py gap maps/pipe_obs_*.yaml --delay 0.25 --steer-rate 1000 \
+    --params config/params.yaml config/delay_tuned.yaml config/pursuit.yaml   # pure pursuit option
 python3 sim/sim_eval.py wall maps/pipe.yaml --delay 0.25 \
     --params config/params.yaml config/delay_tuned.yaml \
     --set wall_follow.half_width=0.75 --set wall_follow.max_wall_dist=1.8
@@ -119,10 +133,13 @@ Parameters come from `config/params.yaml`, a copy of the team `safe.yaml` (`gap_
 - [x] Wall follow — unit tests pass
 - [x] Closed-loop sanity check without ROS (`sim/offline_sim.py`)
 - [x] Box maps with the f1sim_ms obstacle generator, latency study and tuning (`sim/sim_eval.py`, `config/delay_tuned.yaml`)
+- [x] Planner survey (Follow the Gap, wall follow, pure pursuit, lookahead, MPC): [docs/planner_research.md](docs/planner_research.md)
+- [x] Pure pursuit steering option for gap follow, compared in simulation (`config/pursuit.yaml`)
+- [ ] LiDAR output and `base_link → laser` check on the car, measure rear axle → LiDAR and wheelbase: [docs/lidar_check.md](docs/lidar_check.md)
 - [ ] Port to the team repository (`lidar` branch, PR)
 - [ ] Gap follow in the f1sim_ms simulator with RViz, screen recording for the proposal
 - [ ] Mode switching WALL ↔ GAP in simulation, then on the real car (pipe section)
-- [ ] Track and car measurements → parameters (corridor width, box size, LiDAR position, turning radius, steering limit)
+- [ ] Track and car measurements → parameters (corridor width, box size, turning radius, steering limit)
 - [ ] Final track demo (Dec 17, 2026)
 
 **Before testing on the floor** (from the team's 11/24 bag analysis):
